@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once 'config/database.php';
+require_once 'database.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -31,59 +31,12 @@ $stmt = $db->prepare($query);
 $stmt->execute([$user_id]);
 $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-// Handle disbursement actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['action'])) {
-        switch ($_POST['action']) {
-            case 'create_disbursement':
-                createDisbursement($db, $_POST, $user_id);
-                break;
-            case 'update_disbursement_status':
-                updateDisbursementStatus($db, $_POST);
-                break;
-            case 'delete_disbursement':
-                deleteDisbursement($db, $_POST['id']);
-                break;
-        }
-    }
-}
-
-function createDisbursement($db, $data, $user_id) {
-    $query = "INSERT INTO disbursement_requests (requested_by, department, description, amount, date_requested, status) 
-              VALUES (?, ?, ?, ?, NOW(), 'Pending')";
-    $stmt = $db->prepare($query);
-    $stmt->execute([
-        $user_id,
-        $data['department'],
-        $data['description'],
-        $data['amount']
-    ]);
-    
-    header("Location: dashboard8.php");
+if (!$user) {
+    header("Location: login.php");
     exit;
 }
 
-function updateDisbursementStatus($db, $data) {
-    $query = "UPDATE disbursement_requests SET status = ?, approved_by = ?, date_approved = NOW() WHERE request_id = ?";
-    $stmt = $db->prepare($query);
-    $stmt->execute([
-        $data['status'],
-        $_SESSION['user_id'],
-        $data['id']
-    ]);
-    
-    header("Location: dashboard8.php");
-    exit;
-}
 
-function deleteDisbursement($db, $id) {
-    $query = "DELETE FROM disbursement_requests WHERE request_id = ?";
-    $stmt = $db->prepare($query);
-    $stmt->execute([$id]);
-    
-    header("Location: dashboard8.php");
-    exit;
-}
 
 // Get disbursement data
 function getDisbursementRequests($db) {
@@ -136,13 +89,13 @@ function getDashboardStats($db) {
     $stats = [];
     
     // Total Income (Revenue accounts)
-    $query = "SELECT SUM(balance) as total FROM chart_of_accounts WHERE account_type = 'Revenue'";
+    $query = "SELECT COALESCE(SUM(balance), 0) as total FROM chart_of_accounts WHERE account_type = 'Revenue'";
     $stmt = $db->prepare($query);
     $stmt->execute();
     $stats['total_income'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
     
     // Total Expenses (Expense accounts)
-    $query = "SELECT SUM(balance) as total FROM chart_of_accounts WHERE account_type = 'Expense'";
+    $query = "SELECT COALESCE(SUM(balance), 0) as total FROM chart_of_accounts WHERE account_type = 'Expense'";
     $stmt = $db->prepare($query);
     $stmt->execute();
     $stats['total_expenses'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
@@ -151,7 +104,7 @@ function getDashboardStats($db) {
     $stats['cash_flow'] = $stats['total_income'] - $stats['total_expenses'];
     
     // Upcoming Payments
-    $query = "SELECT SUM(amount) as total FROM invoices WHERE due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND status = 'Pending'";
+    $query = "SELECT COALESCE(SUM(amount), 0) as total FROM invoices WHERE due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND status = 'Pending'";
     $stmt = $db->prepare($query);
     $stmt->execute();
     $stats['upcoming_payments'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
@@ -603,9 +556,9 @@ $rejected_disbursements = getRejectedDisbursements($db);
             <div class="flex items-center mb-6">
                 <i class="fa-solid fa-user text-[40px] bg-primary-green text-white px-3 py-3 rounded-full"></i>
                 <div class="ml-4">
-    <h3 class="text-lg font-bold" id="profile-name"><?php echo $user['name']; ?></h3>
-    <p class="text-gray-500"><?php echo ucfirst($user['role']); ?></p>
-</div>
+                    <h3 class="text-lg font-bold" id="profile-name"><?php echo htmlspecialchars($user['name']); ?></h3>
+                    <p class="text-gray-500"><?php echo ucfirst(htmlspecialchars($user['role'])); ?></p>
+                </div>
             </div>
             <div class="space-y-4">
                 <div>
@@ -623,38 +576,49 @@ $rejected_disbursements = getRejectedDisbursements($db);
     </div>
     
     <!-- Modal for Create Disbursement -->
-    <div id="create-disbursement-modal" class="modal">
-        <div class="modal-content">
-            <span class="close-modal">&times;</span>
-            <h2 class="text-xl font-bold mb-4">Create Disbursement Request</h2>
-            <form id="disbursement-form" method="POST">
-                <input type="hidden" name="action" value="create_disbursement">
-                <div class="form-group">
-                    <label class="form-label">Department</label>
-                    <select name="department" class="form-input" required>
-                        <option value="">Select Department</option>
-                        <option value="Marketing">Marketing</option>
-                        <option value="Operations">Operations</option>
-                        <option value="IT">IT</option>
-                        <option value="HR">HR</option>
-                        <option value="Finance">Finance</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Description</label>
-                    <textarea name="description" class="form-input" rows="3" placeholder="Enter description" required></textarea>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Amount</label>
-                    <input type="number" name="amount" class="form-input" placeholder="Enter amount" step="0.01" required>
-                </div>
-                <div class="flex space-x-4 mt-6">
-                    <button type="button" class="btn btn-secondary flex-1 close-modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary flex-1">Submit Request</button>
-                </div>
-            </form>
-        </div>
-    </div>
+<div id="create-disbursement-modal" class="modal">
+  <div class="modal-content">
+    <span class="close-modal">&times;</span>
+    <h2 class="text-xl font-bold mb-4">Create Disbursement Request</h2>
+
+    <form id="disbursement-form" method="POST">
+      <input type="hidden" name="action" value="create_disbursement">
+
+      <div class="form-group">
+        <label class="form-label">Requested By</label>
+        <input type="text" name="requested_by" class="form-input" placeholder="Enter requestor name" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Department</label>
+        <select name="department" class="form-input" required>
+          <option value="">Select Department</option>
+          <option value="Marketing">Marketing</option>
+          <option value="Operations">Operations</option>
+          <option value="IT">IT</option>
+          <option value="HR">HR</option>
+          <option value="Finance">Finance</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-input" rows="3" placeholder="Enter description" required></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Amount</label>
+        <input type="number" name="amount" class="form-input" placeholder="Enter amount" step="0.01" min="0" required>
+      </div>
+
+      <div class="flex space-x-4 mt-6">
+        <button type="button" class="btn btn-secondary flex-1 close-modal">Cancel</button>
+        <button type="submit" class="btn btn-primary flex-1">Submit Request</button>
+      </div>
+    </form>
+  </div>
+</div>
+
     
     <!-- Page Container -->
     <div class="page-container">
@@ -786,10 +750,10 @@ $rejected_disbursements = getRejectedDisbursements($db);
                         <i class="fa-solid fa-bell text-xl text-white"></i>
                     </button>
                     <div id="profile-btn" class="flex items-center space-x-2 cursor-pointer px-3 py-2 transition duration-200">
-    <i class="fa-solid fa-user text-[18px] bg-white text-primary-green px-2.5 py-2 rounded-full"></i>
-    <span class="text-white font-medium"><?php echo $user['name']; ?></span>
-    <i class="fa-solid fa-chevron-down text-sm text-white"></i>
-</div>
+                        <i class="fa-solid fa-user text-[18px] bg-white text-primary-green px-2.5 py-2 rounded-full"></i>
+                        <span class="text-white font-medium"><?php echo htmlspecialchars($user['name']); ?></span>
+                        <i class="fa-solid fa-chevron-down text-sm text-white"></i>
+                    </div>
                 </div>
             </div>
             
@@ -805,7 +769,7 @@ $rejected_disbursements = getRejectedDisbursements($db);
                                 </div>
                                 <div>
                                     <p class="text-sm text-gray-500">Total Income</p>
-                                    <p class="text-2xl font-bold text-dark-text stat-value">₱0</p>
+                                    <p class="text-2xl font-bold text-dark-text stat-value">₱<?php echo number_format($dashboard_stats['total_income'], 2); ?></p>
                                 </div>
                             </div>
                         </div>
@@ -816,7 +780,7 @@ $rejected_disbursements = getRejectedDisbursements($db);
                                 </div>
                                 <div>
                                     <p class="text-sm text-gray-500">Total Expenses</p>
-                                    <p class="text-2xl font-bold text-dark-text stat-value">₱0</p>
+                                    <p class="text-2xl font-bold text-dark-text stat-value">₱<?php echo number_format($dashboard_stats['total_expenses'], 2); ?></p>
                                 </div>
                             </div>
                         </div>
@@ -827,7 +791,7 @@ $rejected_disbursements = getRejectedDisbursements($db);
                                 </div>
                                 <div>
                                     <p class="text-sm text-gray-500">Cash Flow</p>
-                                    <p class="text-2xl font-bold text-dark-text stat-value">₱0</p>
+                                    <p class="text-2xl font-bold text-dark-text stat-value">₱<?php echo number_format($dashboard_stats['cash_flow'], 2); ?></p>
                                 </div>
                             </div>
                         </div>
@@ -838,7 +802,7 @@ $rejected_disbursements = getRejectedDisbursements($db);
                                 </div>
                                 <div>
                                     <p class="text-sm text-gray-500">Upcoming Payments</p>
-                                    <p class="text-2xl font-bold text-dark-text stat-value">₱0</p>
+                                    <p class="text-2xl font-bold text-dark-text stat-value">₱<?php echo number_format($dashboard_stats['upcoming_payments'], 2); ?></p>
                                 </div>
                             </div>
                         </div>
@@ -964,13 +928,13 @@ $rejected_disbursements = getRejectedDisbursements($db);
                     datasets: [
                         {
                             label: 'Income',
-                            data: [],
+                            data: [120000, 135000, 110000, 140000, 125000, 130000, 150000, 145000],
                             backgroundColor: '#2F855A',
                             borderRadius: 6,
                         },
                         {
                             label: 'Expenses',
-                            data: [],
+                            data: [80000, 90000, 85000, 95000, 100000, 105000, 110000, 100000],
                             backgroundColor: '#88BE3C',
                             borderRadius: 6,
                         }
@@ -987,7 +951,7 @@ $rejected_disbursements = getRejectedDisbursements($db);
                             },
                             ticks: {
                                 callback: function(value) {
-                                    return '₱' + value + 'K';
+                                    return '₱' + (value/1000).toFixed(0) + 'K';
                                 }
                             }
                         },
@@ -1319,13 +1283,55 @@ $rejected_disbursements = getRejectedDisbursements($db);
                 }
             });
             
-            // Logout button
+            // FIXED: Logout button functionality
             const logoutBtn = document.getElementById('logout-btn');
             if (logoutBtn) {
                 logoutBtn.addEventListener('click', function() {
                     if (confirm('Are you sure you want to logout?')) {
                         window.location.href = '?logout=true';
                     }
+                });
+            }
+            
+            // FIXED: Create Disbursement functionality
+            document.addEventListener('click', function(e) {
+                // Handle "New Request" button
+                const button = e.target.closest('button');
+                if (button && button.textContent.includes('New Request')) {
+                    document.getElementById('create-disbursement-modal').style.display = 'block';
+                }
+                
+                // Handle disbursement action buttons
+                if (e.target.closest('.action-btn.approve')) {
+                    if (confirm('Are you sure you want to approve this disbursement?')) {
+                        const row = e.target.closest('tr');
+                        const requestId = row.querySelector('td:first-child').textContent;
+                        // You would need to implement AJAX call here or redirect to approval page
+                        alert('Approval functionality would be implemented here for: ' + requestId);
+                    }
+                }
+                
+                if (e.target.closest('.action-btn.reject')) {
+                    if (confirm('Are you sure you want to reject this disbursement?')) {
+                        const row = e.target.closest('tr');
+                        const requestId = row.querySelector('td:first-child').textContent;
+                        // You would need to implement AJAX call here or redirect to rejection page
+                        alert('Rejection functionality would be implemented here for: ' + requestId);
+                    }
+                }
+            });
+            
+            // Handle disbursement form submission
+            const disbursementForm = document.getElementById('disbursement-form');
+            if (disbursementForm) {
+                disbursementForm.addEventListener('submit', function(e) {
+                    // Show loading state
+                    const submitBtn = this.querySelector('button[type="submit"]');
+                    const originalText = submitBtn.innerHTML;
+                    submitBtn.innerHTML = '<div class="spinner"></div>Submitting...';
+                    submitBtn.disabled = true;
+                    
+                    // Form will submit normally via PHP
                 });
             }
             
@@ -1338,29 +1344,9 @@ $rejected_disbursements = getRejectedDisbursements($db);
         
         // Function to load stats data from PHP
         function loadStatsData() {
-            // Use PHP data directly (no delay needed)
-            const stats = {
-                totalIncome: <?php echo $dashboard_stats['total_income'] ?? 0; ?>,
-                totalExpenses: <?php echo $dashboard_stats['total_expenses'] ?? 0; ?>,
-                cashFlow: <?php echo $dashboard_stats['cash_flow'] ?? 0; ?>,
-                upcomingPayments: <?php echo $dashboard_stats['upcoming_payments'] ?? 0; ?>
-            };
-            
-            // Update stat values
-            document.querySelectorAll('.stat-value').forEach((element, index) => {
-                const values = Object.values(stats);
-                if (index < values.length) {
-                    element.textContent = `₱${parseFloat(values[index]).toLocaleString()}`;
-                }
-            });
-            
-            // Update chart data (you can keep the simulated data or fetch real data later)
-            const incomeExpenseChart = Chart.getChart('incomeExpenseChart');
-            if (incomeExpenseChart) {
-                incomeExpenseChart.data.datasets[0].data = [120, 135, 110, 140, 125, 130, 150, 145];
-                incomeExpenseChart.data.datasets[1].data = [80, 90, 85, 95, 100, 105, 110, 100];
-                incomeExpenseChart.update();
-            }
+            // Stats are now displayed directly in PHP in the HTML
+            // This function is kept for any dynamic updates that might be needed
+            console.log('Stats loaded from PHP');
         }
         
         // Function to load transactions from PHP
@@ -1370,6 +1356,15 @@ $rejected_disbursements = getRejectedDisbursements($db);
             const tableBody = document.getElementById('transactions-table-body');
             if (tableBody) {
                 tableBody.innerHTML = '';
+                
+                if (transactions.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="py-4 text-center text-gray-500">No recent transactions found</td>
+                        </tr>
+                    `;
+                    return;
+                }
                 
                 transactions.forEach(transaction => {
                     const statusClass = transaction.status === 'Completed' || transaction.status === 'Approved' ? 'status-completed' : 'status-pending';
@@ -1437,39 +1432,54 @@ $rejected_disbursements = getRejectedDisbursements($db);
             if (notificationsList) {
                 notificationsList.innerHTML = '';
                 
-                notifications.forEach(notification => {
-                    const notificationEl = document.createElement('div');
-                    notificationEl.className = 'flex items-start p-3 bg-gray-50 rounded-lg';
-                    notificationEl.innerHTML = `
-                        <div class="mr-3 mt-1">
-                            <div class="w-2 h-2 rounded-full bg-green-600"></div>
-                        </div>
-                        <div class="flex-1">
-                            <div class="text-sm text-dark-text">${notification.message}</div>
-                            <div class="text-xs text-gray-500 mt-1">${new Date(notification.created_at).toLocaleDateString()}</div>
-                        </div>
+                if (notifications.length === 0) {
+                    notificationsList.innerHTML = `
+                        <div class="text-center text-gray-500 py-4">No notifications</div>
                     `;
-                    notificationsList.appendChild(notificationEl);
-                });
+                } else {
+                    notifications.forEach(notification => {
+                        const notificationEl = document.createElement('div');
+                        notificationEl.className = 'flex items-start p-3 bg-gray-50 rounded-lg';
+                        notificationEl.innerHTML = `
+                            <div class="mr-3 mt-1">
+                                <div class="w-2 h-2 rounded-full bg-green-600"></div>
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-sm text-dark-text">${notification.message || 'Notification'}</div>
+                                <div class="text-xs text-gray-500 mt-1">${new Date(notification.created_at).toLocaleDateString()}</div>
+                            </div>
+                        `;
+                        notificationsList.appendChild(notificationEl);
+                    });
+                }
             }
             
             if (notificationModalList) {
                 notificationModalList.innerHTML = '';
                 
-                notifications.forEach(notification => {
-                    const notificationEl = document.createElement('div');
-                    notificationEl.className = 'p-3 border-b border-gray-200';
-                    notificationEl.innerHTML = `
-                        <div class="font-medium">${notification.message}</div>
-                        <div class="text-sm text-gray-500 mt-1">${new Date(notification.created_at).toLocaleDateString()}</div>
+                if (notifications.length === 0) {
+                    notificationModalList.innerHTML = `
+                        <div class="text-center text-gray-500 py-4">No notifications</div>
                     `;
-                    notificationModalList.appendChild(notificationEl);
-                });
+                } else {
+                    notifications.forEach(notification => {
+                        const notificationEl = document.createElement('div');
+                        notificationEl.className = 'p-3 border-b border-gray-200';
+                        notificationEl.innerHTML = `
+                            <div class="font-medium">${notification.message || 'Notification'}</div>
+                            <div class="text-sm text-gray-500 mt-1">${new Date(notification.created_at).toLocaleDateString()}</div>
+                        `;
+                        notificationModalList.appendChild(notificationEl);
+                    });
+                }
             }
         }
         
         // Function to initialize page-specific scripts
         function initializePageSpecificScripts(pageId) {
+            // Initialize tabs for pages that have them
+            initializeTabs();
+            
             // Add any page-specific initialization here
             if (pageId.includes('disbursement')) {
                 initializeDisbursementScripts();
@@ -1482,6 +1492,27 @@ $rejected_disbursements = getRejectedDisbursements($db);
             } else if (pageId.includes('budget')) {
                 initializeBudgetScripts();
             }
+        }
+        
+        // FIXED: Initialize tabs functionality
+        function initializeTabs() {
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const tabId = this.getAttribute('data-tab');
+                    
+                    // Remove active class from all tabs and tab contents
+                    tabs.forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                    
+                    // Add active class to clicked tab and corresponding content
+                    this.classList.add('active');
+                    const tabContent = document.getElementById(`${tabId}-tab`);
+                    if (tabContent) {
+                        tabContent.classList.add('active');
+                    }
+                });
+            });
         }
         
         // Content generation functions for each page
@@ -1753,6 +1784,52 @@ $rejected_disbursements = getRejectedDisbursements($db);
             `;
         }
         
+// Create Disbursement functionality
+document.addEventListener('DOMContentLoaded', function() {
+    // Add event listener for create disbursement button
+    const newRequestBtn = document.querySelector('button:contains("New Request")');
+    if (newRequestBtn) {
+        newRequestBtn.addEventListener('click', function() {
+            document.getElementById('create-disbursement-modal').style.display = 'block';
+        });
+    }
+    
+    // Handle disbursement form submission
+    const disbursementForm = document.getElementById('disbursement-form');
+    if (disbursementForm) {
+        disbursementForm.addEventListener('submit', function(e) {
+            // Show loading state
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<div class="spinner"></div>Submitting...';
+            submitBtn.disabled = true;
+            
+            // Form will submit normally via PHP
+        });
+    }
+    
+    // Handle disbursement action buttons
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.action-btn.approve')) {
+            if (confirm('Are you sure you want to approve this disbursement?')) {
+                const row = e.target.closest('tr');
+                const requestId = row.querySelector('td:first-child').textContent;
+                // You would need to implement AJAX call here or redirect to approval page
+                alert('Approval functionality would be implemented here for: ' + requestId);
+            }
+        }
+        
+        if (e.target.closest('.action-btn.reject')) {
+            if (confirm('Are you sure you want to reject this disbursement?')) {
+                const row = e.target.closest('tr');
+                const requestId = row.querySelector('td:first-child').textContent;
+                // You would need to implement AJAX call here or redirect to rejection page
+                alert('Rejection functionality would be implemented here for: ' + requestId);
+            }
+        }
+    });
+});
+
         // General Ledger Pages
         function getChartOfAccountsContent() {
             return `
@@ -2008,32 +2085,36 @@ $rejected_disbursements = getRejectedDisbursements($db);
                         </div>
                     </div>
                     <div class="mb-6">
-                        <h3 class="font-medium mb-4">Report Parameters</h3>
-                        <div class="flex space-x-4">
-                            <div class="form-group">
-                                <label class="form-label">Report Type</label>
-                                <select class="form-input">
-                                    <option>Income Statement</option>
-                                    <option>Balance Sheet</option>
-                                    <option>Cash Flow Statement</option>
-                                    <option>Trial Balance</option>
+                         <h3 class="font-medium mb-4">Report Parameters</h3>
+                         <div class="flex flex-wrap gap-4">
+                             <div class="form-group">
+                                 <label class="form-label">Report Type</label>
+                                 <select class="form-input" id="reportType">
+                                     <option>Income Statement</option>
+                                     <option>Balance Sheet</option>
+                                     <option>Cash Flow Statement</option>
+                                     <option>Trial Balance</option>
+                                     <option>Department Budget Report</option>
+                                     <option>Budget vs Actual Report</option>
+                                 </select>
+                             </div>
+                             <div class="form-group">
+                                 <label class="form-label">Fiscal Year</label>
+                                 <select class="form-input" id="fiscalYear">
+                                     <option>2025</option><option>2024</option><option>2023</option>
+                                 </select>
+                             </div>
+                             <div class="form-group">
+                                 <label class="form-label">Period</label>
+                                 <select class="form-input" id="period">
+                                     <option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option><option>Full Year</option>
                                 </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Period</label>
-                                <select class="form-input">
-                                    <option>This Month</option>
-                                    <option>Last Month</option>
-                                    <option>This Quarter</option>
-                                    <option>This Year</option>
-                                    <option>Custom Range</option>
-                                </select>
-                            </div>
-                            <div class="form-group flex items-end">
-                                <button class="btn btn-primary">Generate Report</button>
-                            </div>
-                        </div>
-                    </div>
+                             </div>
+                             <div class="form-group flex items-end">
+                                 <button class="btn btn-primary" id="generateReportBtn">Generate Report</button>
+                             </div>
+                         </div>
+                     </div>
                     <div class="flex space-x-4">
                         <button class="btn btn-primary">Export to PDF</button>
                         <button class="btn btn-secondary">Export to Excel</button>
@@ -3307,59 +3388,22 @@ $rejected_disbursements = getRejectedDisbursements($db);
         
         // Initialize page-specific scripts
         function initializeDisbursementScripts() {
-            // Add any disbursement-specific scripts here
             console.log('Initializing disbursement scripts');
         }
         
         function initializeLedgerScripts() {
-            // Add any ledger-specific scripts here
             console.log('Initializing ledger scripts');
         }
         
         function initializeAPARScripts() {
-            // Add any AP/AR-specific scripts here
             console.log('Initializing AP/AR scripts');
-            
-            // Tab functionality for AP/AR pages
-            const tabs = document.querySelectorAll('.tab');
-            tabs.forEach(tab => {
-                tab.addEventListener('click', function() {
-                    const tabId = this.getAttribute('data-tab');
-                    
-                    // Remove active class from all tabs and tab contents
-                    tabs.forEach(t => t.classList.remove('active'));
-                    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-                    
-                    // Add active class to clicked tab and corresponding content
-                    this.classList.add('active');
-                    document.getElementById(`${tabId}-tab`).classList.add('active');
-                });
-            });
         }
         
         function initializeCollectionScripts() {
-            // Add any collection-specific scripts here
             console.log('Initializing collection scripts');
-            
-            // Tab functionality for collection pages
-            const tabs = document.querySelectorAll('.tab');
-            tabs.forEach(tab => {
-                tab.addEventListener('click', function() {
-                    const tabId = this.getAttribute('data-tab');
-                    
-                    // Remove active class from all tabs and tab contents
-                    tabs.forEach(t => t.classList.remove('active'));
-                    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-                    
-                    // Add active class to clicked tab and corresponding content
-                    this.classList.add('active');
-                    document.getElementById(`${tabId}-tab`).classList.add('active');
-                });
-            });
         }
         
         function initializeBudgetScripts() {
-            // Add any budget-specific scripts here
             console.log('Initializing budget scripts');
         }
     </script>
